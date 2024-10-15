@@ -1,0 +1,23 @@
+{
+  "name": "aidevs3",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "task": "bun run src/tasks/$TASK.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "bun-types": "^1.1.30"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "got": "^14.4.3",
+    "langchain": "^0.3.2",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
