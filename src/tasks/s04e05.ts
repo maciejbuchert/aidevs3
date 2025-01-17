@@ -10,13 +10,7 @@ const questions = await got.get(questionsUrl).json<Record<string, string>>();
 
 const parsedNotes = await PdfParse(notes);
 
-const data: Record<string, string> = {
-    "01": "2019",
-    "02": "To Adam wybrał rok, do którego Rafał miał się przenieść, na podstawie swoich wyliczeń.",
-    "03": "Jaskinia",
-    "04": "2024-11-12",
-    "05": "Lubawa"
-};
+const data: Record<string, string> = {};
 
 try {
     const aiDevs = new AiDevsService();
