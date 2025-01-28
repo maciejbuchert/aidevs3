@@ -1,12 +1,9 @@
 import fs from "node:fs";
 import {ChatOpenAI} from "@langchain/openai";
-import {HumanMessage, SystemMessage} from "@langchain/core/messages";
 import AiDevsService from "../services/AiDevsService.ts";
 import QdrantVectorDb from "../services/QdrantVectorDb.ts";
 import type { Document } from "@langchain/core/documents";
 import { PromptTemplate } from "@langchain/core/prompts";
-import {z} from "zod";
-import {StructuredOutputParser} from "@langchain/core/output_parsers";
 
 const qdrantCollectionName = `s03e01_${new Date().getTime()}`;
 const qdrantVectorDb = new QdrantVectorDb(qdrantCollectionName);
@@ -46,7 +43,11 @@ const answerPrompt = PromptTemplate.fromTemplate(
     {{context}}
     </context>
 
-    Try to collect keywords from the documents. Output the keywords in a string separated by commas.
+    Generate at least 10 tags for the provided report, considering the context from 
+    facts about the person (if provided) – who they are, what they specifically do, where they live, and other relevant details
+    Tags should be separated by commas, without adding the '#' symbol before them.
+    The first tag MUST be the sector/department name extracted from the file name in the format: 'sector X1', 'sector X2', etc.
+
     <example_output>cat,dog,animal</example_output>`,
 );
 
@@ -63,21 +64,19 @@ for(const file of taskDocumentsDirectory) {
         document: docContent,
     });
 
-    console.log(formattedPrompt);
-    // const aiResponse = await openAi.invoke(formattedPrompt);
-
-    // keywords[file] = aiResponse.content as string;
+    const aiResponse = await openAi.invoke(formattedPrompt);
+    keywords[file] = aiResponse.content as string;
 
 }
 
 console.log(keywords);
 
-// try {
-//     const aiDevs = new AiDevsService();
-//     const response = await aiDevs.sendTask('dokumenty', keywords);
-//     if(response) {
-//         console.log(response.body);
-//     }
-// } catch (error) {
-//     console.error(error);
-// }
+try {
+    const aiDevs = new AiDevsService();
+    const response = await aiDevs.sendTask('dokumenty', keywords);
+    if(response) {
+        console.log(response.body);
+    }
+} catch (error) {
+    console.error(error);
+}

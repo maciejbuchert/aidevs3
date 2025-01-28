@@ -2,19 +2,17 @@
 
 import * as cheerio from 'cheerio';
 import got from "got";
-import {ChatOpenAI, OpenAIEmbeddings} from "@langchain/openai";
-import { QdrantClient } from "@qdrant/js-client-rest";
+import {ChatOpenAI} from "@langchain/openai";
 import {NodeHtmlMarkdown} from "node-html-markdown";
-import {HumanMessage} from "@langchain/core/messages";
+import {HumanMessage, SystemMessage} from "@langchain/core/messages";
 import {OpenAIWhisperAudio} from "@langchain/community/document_loaders/fs/openai_whisper_audio";
 import {RecursiveCharacterTextSplitter} from "@langchain/textsplitters";
+import AiDevsService from "../services/AiDevsService.ts";
+import QdrantVectorDb from "../services/QdrantVectorDb.ts";
 
 const openAi = new ChatOpenAI({ model: 'gpt-4o-mini' });
-const client = new QdrantClient({ host: "localhost", port: 6333 });
-const collection = `s02e05_collection_${new Date().getTime()}`;
-await client.createCollection(collection, {
-    vectors: { size: 1500, distance: "Dot" },
-});
+const collection = `s02e05_collection`;
+const client = new QdrantVectorDb(collection);
 
 console.log('Retrieving article content...');
 const articleUrl = 'https://centrala.ag3nts.org/dane/arxiv-draft.html';
@@ -85,103 +83,84 @@ for(const audioUrl of audioUrls) {
 }
 
 console.log('Embedding content...');
-const embeddingModel = new OpenAIEmbeddings();
+await client.addDocumentToStore({
+    pageContent: articleTitle,
+    metadata: {},
+});
+await client.addDocumentToStore({
+    pageContent: articleLead,
+    metadata: {},
+});
+await client.addDocumentToStore({
+    pageContent: articleAuthors.join(' '),
+    metadata: {},
+});
+await client.addDocumentsToStore(allSplits);
 
-console.log([
-    {
-        id: 1,
-        vector: await embeddingModel.embedQuery(articleTitle),
-        payload: { title: articleTitle },
-    },
-    {
-        id: 2,
-        vector: await embeddingModel.embedQuery(articleAuthors.join(' ')),
-        payload: { authors: articleAuthors.join(' ') },
-    },
-]);
+console.log('Embedding images...');
+await client.addDocumentsToStore(imageDescriptions.map((imageDescription) => {
+    return {
+        pageContent: imageDescription,
+        metadata: {},
+    }
+}));
 
-const operationInfo = await client.upsert(collection, {
-    wait: true,
-    points: [
-        {
-            id: 1,
-            vector: await embeddingModel.embedQuery(articleTitle),
-            payload: { title: articleTitle },
-        },
-        {
-            id: 2,
-            vector: await embeddingModel.embedQuery(articleAuthors.join(' ')),
-            payload: { authors: articleAuthors.join(' ') },
-        },
-    ],
+console.log('Embedding audio...');
+await client.addDocumentsToStore(audioContents.map((audioTranscription) => {
+    return {
+        pageContent: audioTranscription,
+        metadata: {},
+    }
+}));
+
+const questionsUrl = `https://centrala.ag3nts.org/data/${process.env.AIDEVS_API_KEY}/arxiv.txt`
+const questionsString = await got.get(questionsUrl).text();
+const questions = questionsString.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).map((line) => {
+    const question = line.split('=');
+    return {
+        id: question[0],
+        question: question[1],
+    }
 });
 
-// let i = 2;
-//
-// for(const split of allSplits) {
-//     const operationInfo = await client.upsert(collection, {
-//         wait: true,
-//         points: [
-//             {
-//                 id: i++,
-//                 vector: await embeddingModel.embedQuery(split.pageContent),
-//                 payload: { pageContent: split.pageContent },
-//             }
-//         ],
-//     });
-// }
+const answers: Record<string, string> = {
+};
 
-// console.log('Embedding images...');
-// for(const imageDescription of imageDescriptions) {
-//     points.push({
-//         id: points.length,
-//         vector: await embeddingModel.embedQuery(imageDescription),
-//         payload: { image: imageDescription},
-//     });
-// }
-//
-// console.log('Embedding audio...');
-// for(const audioContent of audioContents) {
-//     points.push({
-//         id: points.length,
-//         vector: await embeddingModel.embedQuery(audioContent),
-//         payload: { audio: audioContent },
-//     });
-// }
+for(const question of questions) {
+    if(!answers[question.id]) {
+        const aiQuery = await openAi.invoke([
+            new SystemMessage('Your task is to make a query to VectorDB to retrieve the most relevant content for the question.'),
+            new SystemMessage('Deeply analyze the content and answer the question.'),
+            new SystemMessage(`Answer shortly.`),
+            new HumanMessage(question.question),
+        ]);
 
+        const query = aiQuery.content as string;
+        const documents = await client.searchStore(query, 5);
 
-// const questionsUrl = `https://centrala.ag3nts.org/data/${process.env.AIDEVS_API_KEY}/arxiv.txt`
-// const questionsString = await got.get(questionsUrl).text();
-// const questions = questionsString.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).map((line) => {
-//     const question = line.split('=');
-//     return {
-//         id: question[0],
-//         question: question[1],
-//     }
-// });
-//
-// const questionsWithAnswers: Record<string, string> = {};
-//
+        const aiResponse = await openAi.invoke([
+            new SystemMessage('Your task is to answer the question based on the retrieved content.'),
+            new SystemMessage('Deeply analyze the content and answer the question.'),
+            new SystemMessage(`<content>${JSON.stringify(documents)}</content>`),
+            new SystemMessage(`Answer shortly.`),
+            new HumanMessage(question.question),
+        ]);
 
+        const response = aiResponse.content as string;
+        console.log(aiResponse.content as string);
 
-// for(const question of questions) {
-//     const aiResponse = await openAi.invoke([
-//         new SystemMessage('Your task is to answer the question from user based on the provided article content.'),
-//         new SystemMessage('Deeply analyze the content and answer the question.'),
-//         new SystemMessage('Make answer short in one sentence.'),
-//         new SystemMessage(`<article>${article}</article>`),
-//         new HumanMessage(question.question),
-//     ]);
-//
-//     questionsWithAnswers[question.id] = aiResponse.content as string;
-// }
-//
-// try {
-//     const aiDevs = new AiDevsService();
-//     const response = await aiDevs.sendTask('arxiv', questionsWithAnswers);
-//     if(response) {
-//         console.log(response.body);
-//     }
-// } catch (error) {
-//     console.error(error);
-// }
+        answers[question.id] = response;
+    }
+}
+
+console.log(answers);
+
+try {
+    const aiDevs = new AiDevsService();
+    const response = await aiDevs.sendTask('arxiv', answers);
+    if(response) {
+        console.log(response.body);
+    }
+} catch (error) {
+    console.error(error);
+}
